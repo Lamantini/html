@@ -1,5 +1,4 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from time import sleep
 from datetime import datetime
 import urllib.parse
 import mimetypes
@@ -8,13 +7,10 @@ import socket
 import json
 import threading
 
-
 HOST = '127.0.0.1'
 HTTP_PORT = 3000
 UDP_IP = '127.0.0.1'
 UDP_PORT = 5000
-data = ''
-
 
 def run_http_server():
     class HttpHandler(BaseHTTPRequestHandler):
@@ -55,6 +51,20 @@ def run_http_server():
             print(data_parse)
             data_dict = {key: value for key, value in [el.split('=') for el in data_parse.split('&')]}
             print(data_dict)
+            # Додати ім'я користувача та повідомлення до запису
+            record = {
+                "username": data_dict.get("username", ""),
+                "message": data_dict.get("message", "")
+            }
+            # Зберегти запис у файлі data.json з ключем - часом отримання
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+            with open('storage/data.json', 'a') as file:
+                json.dump({timestamp: record}, file, ensure_ascii=False, indent=2)
+                file.write('\n')
+            # Відправити дані на UDP-сервер
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(json.dumps({timestamp: record}, ensure_ascii=False).encode(), (UDP_IP, UDP_PORT))
+            sock.close()  # Закрити з'єднання після використання
             self.send_response(302)
             self.send_header('Location', '/')
             self.end_headers()
@@ -65,7 +75,6 @@ def run_http_server():
     print(f"HTTP server started on port {HTTP_PORT}")
     http_server.serve_forever()
 
-
 def run_udp_server():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server = UDP_IP, UDP_PORT
@@ -75,33 +84,19 @@ def run_udp_server():
         while True:
             data, address = sock.recvfrom(1024)
             print(f'Received data: {data.decode()} from: {address}')
-            
-            # Отримання поточного часу та створення запису для JSON
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-            message = data.decode()
-            record = {timestamp: {"message": message}}
-            
-            # Зберігання запису у файлі data.json
-            with open('storage/data.json', 'a') as file:
-                json.dump(record, file, indent=2)
-                file.write('\n')
-            
-            sock.sendto(data, address)
-            print(f'Send data: {data.decode()} to: {address}')
-
     except KeyboardInterrupt:
         print(f'Destroy server')
     finally:
         sock.close()
 
-
 if __name__ == '__main__':
-    http_server_thread = threading.Thread(target=run_http_server)
     udp_server_thread = threading.Thread(target=run_udp_server)
+    http_server_thread = threading.Thread(target=run_http_server)
     
-    http_server_thread.start()
     udp_server_thread.start()
-    
-    http_server_thread.join()
+    http_server_thread.start()
+
     udp_server_thread.join()
+    http_server_thread.join()
+
     print('Done!')
